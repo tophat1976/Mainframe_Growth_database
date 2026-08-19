@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Project Demeter — Mainframe Growth Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDnV_8tQ3AYOGCLBVq8re-x0OLdlOvlsJA",
+    authDomain: "mainframe-growth-dashboard.firebaseapp.com",
+    projectId: "mainframe-growth-dashboard",
+    storageBucket: "mainframe-growth-dashboard.firebasestorage.app",
+    messagingSenderId: "185780959449",
+    appId: "1:185780959449:web:40b75694dbeb56c279a6c8"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const docRef = doc(db, "dashboard", "main");
+
+  // Expose a small bridge so the plain-script section below can use Firestore
+  // without itself being a module.
+  window.__demeter = { db, docRef, setDoc, onSnapshot };
+</script>
+<style>
+  :root{
+    --bg:#10151B;
+    --panel:#171E27;
+    --panel-2:#1C242F;
+    --line:#2B3644;
+    --line-soft:#212A36;
+    --text:#EDEFF3;
+    --text-dim:#8B96A5;
+    --text-faint:#525C6B;
+    --blue:#4C86C0;
+    --amber:#E3A63D;
+    --mint:#4FBE8A;
+    --danger:#D9695F;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  .wrap{max-width:1360px;margin:0 auto;padding:28px 24px 60px;}
+
+  /* ---------- HEADER ---------- */
+  header{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    border-bottom:1px solid var(--line);
+    padding-bottom:20px;margin-bottom:22px;flex-wrap:wrap;gap:16px;
+  }
+  .title-block .eyebrow{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;
+    color:var(--text-faint);text-transform:uppercase;margin-bottom:6px;
+  }
+  .title-block h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.01em;}
+  .title-block .sub{color:var(--text-dim);font-size:13px;margin-top:4px;display:flex;align-items:center;gap:6px;}
+  .status-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint);display:inline-block;flex-shrink:0;}
+  .status-dot.live{background:var(--mint);animation:pulse 1.8s infinite;}
+  .status-dot.error{background:var(--danger);}
+
+  .agg{display:flex;gap:22px;flex-wrap:wrap;}
+  .agg .stat{text-align:right;}
+  .agg .stat .num{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;}
+  .agg .stat .lbl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+
+  /* ---------- STAGE LEGEND / AGGREGATE FUNNEL ---------- */
+  .funnel-legend{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px 20px 14px;margin-bottom:26px;
+  }
+  .funnel-legend h2{
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);
+    margin:0 0 14px;font-weight:600;
+  }
+  .stage-rows{display:flex;flex-direction:column;gap:0;}
+  .stage-row{
+    display:grid;grid-template-columns:34px 1fr 260px;align-items:center;gap:14px;
+    padding:6px 0;border-bottom:1px solid var(--line-soft);
+  }
+  .stage-row:last-child{border-bottom:none;}
+  .stage-row .n{font-family:'IBM Plex Mono',monospace;color:var(--text-faint);font-size:12px;}
+  .stage-row .name{font-size:13px;color:var(--text);}
+  .bar-track{background:var(--line-soft);border-radius:4px;height:8px;overflow:hidden;position:relative;flex:1;}
+  .bar-fill{height:100%;border-radius:4px;transition:width .4s ease;}
+  .stage-row .bar-wrap{display:flex;align-items:center;gap:10px;}
+  .stage-row .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-dim);width:24px;text-align:right;}
+
+  /* ---------- COLUMNS ---------- */
+  .columns{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1400px){.columns{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:640px){.columns{grid-template-columns:1fr;}}
+
+  .column-head{
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
+  }
+  .am-id{display:flex;align-items:center;gap:10px;}
+  .am-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .am-id h3{margin:0;font-size:15px;font-weight:600;}
+  .am-id .am-count{font-size:11px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;}
+
+  .add-btn{
+    background:transparent;border:1px solid var(--line);color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.05em;
+    padding:5px 10px;border-radius:6px;cursor:pointer;transition:all .15s ease;
+  }
+  .add-btn:hover{border-color:var(--text-dim);color:var(--text);}
+
+  .cards{display:flex;flex-direction:column;gap:12px;}
+  .empty{
+    border:1px dashed var(--line);border-radius:var(--radius);padding:22px 16px;
+    text-align:center;color:var(--text-faint);font-size:12.5px;
+  }
+
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 16px 14px;border-left:3px solid var(--am-color, var(--line));
+  }
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:12px;}
+  .acct-name{
+    background:transparent;border:none;color:var(--text);font-size:14.5px;font-weight:600;
+    font-family:'IBM Plex Sans',sans-serif;width:100%;padding:2px 0;
+  }
+  .acct-name:focus{outline:none;border-bottom:1px solid var(--line);}
+  .del-btn{
+    background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:15px;
+    line-height:1;padding:2px 4px;flex-shrink:0;
+  }
+  .del-btn:hover{color:var(--danger);}
+
+  /* rail */
+  .rail{display:flex;align-items:center;gap:4px;margin-bottom:8px;}
+  .node{
+    width:20px;height:20px;border-radius:50%;border:2px solid var(--line);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:var(--text-faint);
+    background:var(--panel-2);transition:all .15s ease;position:relative;
+  }
+  .node.done{border-color:var(--am-color);background:var(--am-color);color:var(--bg);}
+  .node.current{
+    animation:pulse 1.8s infinite;box-shadow:0 0 0 0 var(--am-color);
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--am-color) 55%, transparent);}
+    70%{box-shadow:0 0 0 5px transparent;}
+    100%{box-shadow:0 0 0 0 transparent;}
+  }
+  .rail-link{flex:1;height:2px;background:var(--line);min-width:3px;}
+  .rail-link.done{background:var(--am-color);}
+
+  .stage-label{
+    font-size:11.5px;color:var(--text-dim);margin-bottom:12px;min-height:14px;
+  }
+  .stage-label b{color:var(--text);font-weight:600;}
+
+  .meta-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;}
+  .meta-row.with-industry{grid-template-columns:1fr;}
+  .meta-row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;}
+  .field label{display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+  .field input, .field textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+    color:var(--text);font-size:12.5px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;
+  }
+  .field textarea{font-family:'IBM Plex Sans',sans-serif;resize:none;min-height:34px;}
+  .field input:focus,.field textarea:focus{outline:none;border-color:var(--am-color);}
+
+  footer{margin-top:30px;text-align:center;color:var(--text-faint);font-size:11px;font-family:'IBM Plex Mono',monospace;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <div class="eyebrow">Project Demeter · Mainframe Expansion Plan</div>
+      <h1>Mainframe Growth Dashboard</h1>
+      <div class="sub"><span id="statusDot" class="status-dot"></span><span id="statusText">Connecting…</span> · Signal → Insight → Hook → Conversation → Offer → Pipeline</div>
+    </div>
+    <div class="agg">
+      <div class="stat"><div class="num mono" id="statAccounts">0</div><div class="lbl">Accounts</div></div>
+      <div class="stat"><div class="num mono" id="statPipeline">£0</div><div class="lbl">Est. pipeline</div></div>
+      <div class="stat"><div class="num mono" id="statQualified">0</div><div class="lbl">Qualified opps</div></div>
+      <button class="add-btn" id="exportBtn" style="align-self:center;">↓ export csv</button>
+    </div>
+  </header>
+
+  <div class="funnel-legend">
+    <h2>Aggregate funnel — all account managers</h2>
+    <div class="stage-rows" id="legendRows"></div>
+  </div>
+
+  <div class="columns" id="columns"></div>
+
+  <footer>Live-synced via Firebase — anyone with this page's URL can view and update it · click a rail node to set stage progress</footer>
+</div>
+
+<script>
+const STAGES = [
+  "Stakeholders identified",
+  "Signals & LinkedIn activity found",
+  "Meaningful comments / interactions made",
+  "Connections accepted",
+  "Direct conversations started",
+  "Account hypotheses validated",
+  "Discovery meetings secured",
+  "Clinics or workshops proposed",
+  "Qualified opportunities created",
+  "Pipeline value & next action agreed"
+];
+
+const AMS = [
+  {id:'andre', name:'André', color:'#4C86C0'},
+  {id:'euan',  name:'Euan',  color:'#E3A63D'},
+  {id:'matt',  name:'Matt',  color:'#4FBE8A'},
+  {id:'dom',   name:'Dom',   color:'#9B7FD4'}
+];
+
+const STORAGE_KEY = 'demeter-accounts';
+let accounts = [];
+let pendingRemote = null;
+let saveTimer = null;
+
+function uid(){return 'a'+Math.random().toString(36).slice(2,10);}
+
+function setStatus(state){
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'status-dot' + (state==='live' ? ' live' : state==='error' ? ' error' : '');
+  text.textContent = state==='live' ? 'Live' : state==='error' ? 'Connection issue — edits saved locally' : 'Connecting…';
+}
+
+function isEditingInCard(){
+  const el = document.activeElement;
+  return el && el.closest && el.closest('.card');
+}
+
+function init(){
+  const { docRef, onSnapshot, setDoc } = window.__demeter;
+  window.__firestoreSetDoc = setDoc;
+  window.__firestoreDocRef = docRef;
+
+  onSnapshot(docRef, (snap)=>{
+    const data = snap.exists() ? snap.data() : null;
+    const remoteAccounts = (data && Array.isArray(data.accounts)) ? data.accounts : [];
+
+    // Point the working array at what's remote, then top up any AM
+    // whose account list is missing entirely (new AMs added in code
+    // after the doc already existed won't be there otherwise).
+    const editingNow = isEditingInCard();
+    const localSnapshotBefore = editingNow ? accounts : null;
+
+    accounts = remoteAccounts;
+    const beforeJSON = JSON.stringify(accounts);
+    seedIfEmpty();
+    const afterJSON = JSON.stringify(accounts);
+    const needsWrite = beforeJSON !== afterJSON;
+
+    if(editingNow){
+      pendingRemote = accounts;
+      accounts = localSnapshotBefore;
+    }else{
+      render();
+    }
+
+    if(needsWrite) save(true);
+    setStatus('live');
+  }, (err)=>{
+    console.error('Firestore listen failed', err);
+    setStatus('error');
+  });
+
+  document.addEventListener('focusout', ()=>{
+    setTimeout(()=>{
+      if(pendingRemote && !isEditingInCard()){
+        accounts = pendingRemote;
+        pendingRemote = null;
+        render();
+      }
+    }, 50);
+  });
+}
+
+async function save(immediate){
+  clearTimeout(saveTimer);
+  const doWrite = async ()=>{
+    try{
+      await window.__firestoreSetDoc(window.__firestoreDocRef, { accounts, updatedAt: Date.now() });
+    }catch(e){
+      console.error('Firestore save failed', e);
+      setStatus('error');
+    }
+  };
+  if(immediate){ await doWrite(); }
+  else{ saveTimer = setTimeout(doWrite, 450); }
+}
+
+function addAccount(amId){
+  accounts.push({id:uid(), am:amId, name:'New account', industry:'', notes:'', stage:0, value:0, nextAction:''});
+  save(true); render();
+}
+
+function seedIfEmpty(){
+  if(accounts.filter(a=>a.am==='andre').length===0){
+    const seed = [
+      ['Amazon','Transport & Logistics'],
+      ['Bank of America','Finance & Insurance'],
+      ['Dell EMC','Managed Services & IT Providers'],
+      ['FCA Fiat Chrysler Automobiles','Managed Services & IT Providers'],
+      ['Siemens Building Technologies','Energy, Utilities & Mining'],
+      ['Uniper','Finance & Insurance']
+    ];
+    seed.forEach(([name,industry])=>{
+      accounts.push({id:uid(), am:'andre', name, industry, stage:0, value:0, nextAction:''});
+    });
+  }
+  if(accounts.filter(a=>a.am==='euan').length===0){
+    const seed = [
+      ['Allianz Deutschland AG','Finance & Insurance'],
+      ['Allianz Global Investors','Managed Services & IT Providers'],
+      ['Banco Santander','Finance & Insurance'],
+      ['bp','Energy, Utilities & Mining'],
+      ['Citi','Finance & Insurance'],
+      ['Eni','Energy, Utilities & Mining'],
+      ['Santander Group','Managed Services & IT Providers'],
+      ['Total','Energy, Utilities & Mining']
+    ];
+    seed.forEach(([name,industry])=>{
+      accounts.push({id:uid(), am:'euan', name, industry, stage:0, value:0, nextAction:''});
+    });
+  }
+  if(accounts.filter(a=>a.am==='matt').length===0){
+    const seed = [
+      ['AXA','Finance & Insurance'],
+      ['AXA Group Operations','Finance & Insurance'],
+      ['Crédit Agricole Group Infrastructure Platform','Managed Services & IT Providers'],
+      ['J.P. Morgan','Finance & Insurance'],
+      ['JP Morgan Chase','Finance & Insurance'],
+      ['Shell','Energy, Utilities & Mining'],
+      ['Shell Energy Retail','Energy, Utilities & Mining']
+    ];
+    seed.forEach(([name,industry])=>{
+      accounts.push({id:uid(), am:'matt', name, industry, stage:0, value:0, nextAction:''});
+    });
+  }
+  if(accounts.filter(a=>a.am==='dom').length===0){
+    const seed = [
+      ['The Saudi National Bank','FS&I','Fit across all three products, with opportunity to expand the account due to asset size.'],
+      ['Riyad Bank','FS&I','Strong opportunity with all three products; already engaged with some stakeholders via LinkedIn.'],
+      ['Saudi Awwal Bank','FS&I','Strong opportunity with all three products; already engaged with some stakeholders via LinkedIn.'],
+      ['Qatar National Bank','FS&I','Opportunity to break into other large accounts via Turkey/Egypt.'],
+      ['Arab Bank','FS&I','Will look to identify stakeholders and engage.'],
+      ['Banque Misr','FS&I','Also relates to opportunities within Egypt.'],
+      ['National Bank of Egypt','FS&I','Largest IBM estate.']
+    ];
+    seed.forEach(([name,industry,notes])=>{
+      accounts.push({id:uid(), am:'dom', name, industry, notes, stage:0, value:0, nextAction:''});
+    });
+  }
+}
+function removeAccount(id){
+  accounts = accounts.filter(a=>a.id!==id);
+  save(true); render();
+}
+function setStage(id, stage){
+  const a = accounts.find(x=>x.id===id);
+  if(!a) return;
+  a.stage = (a.stage===stage) ? stage-1 : stage; // click same node again to step back
+  if(a.stage<0) a.stage=0;
+  save(true); render();
+}
+function updateField(id, field, val){
+  const a = accounts.find(x=>x.id===id);
+  if(!a) return;
+  a[field] = val;
+  save(false);
+}
+
+function fmtMoney(n){
+  n = Number(n)||0;
+  return '£'+n.toLocaleString('en-GB');
+}
+
+function render(){
+  // aggregate stats
+  document.getElementById('statAccounts').textContent = accounts.length;
+  document.getElementById('statPipeline').textContent = fmtMoney(accounts.reduce((s,a)=>s+(Number(a.value)||0),0));
+  document.getElementById('statQualified').textContent = accounts.filter(a=>a.stage>=9).length;
+
+  // legend / aggregate funnel bars
+  const legend = document.getElementById('legendRows');
+  legend.innerHTML = '';
+  const total = accounts.length || 1;
+  STAGES.forEach((label, i)=>{
+    const reached = accounts.filter(a=>a.stage>=i+1).length;
+    const pct = Math.round((reached/total)*100);
+    const row = document.createElement('div');
+    row.className = 'stage-row';
+    row.innerHTML = `
+      <div class="n mono">${String(i+1).padStart(2,'0')}</div>
+      <div class="name">${label}</div>
+      <div class="bar-wrap">
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:#4C86C0"></div></div>
+        <div class="count">${reached}</div>
+      </div>`;
+    legend.appendChild(row);
+  });
+
+  // columns
+  const cols = document.getElementById('columns');
+  cols.innerHTML = '';
+  AMS.forEach(am=>{
+    const amAccounts = accounts.filter(a=>a.am===am.id);
+    const col = document.createElement('div');
+    col.className = 'column';
+
+    const head = document.createElement('div');
+    head.className = 'column-head';
+    head.innerHTML = `
+      <div class="am-id">
+        <span class="am-dot" style="background:${am.color}"></span>
+        <h3>${am.name}</h3>
+        <span class="am-count">${amAccounts.length} accts · ${fmtMoney(amAccounts.reduce((s,a)=>s+(Number(a.value)||0),0))}</span>
+      </div>
+      <button class="add-btn" data-am="${am.id}">+ add account</button>`;
+    col.appendChild(head);
+
+    const cardsWrap = document.createElement('div');
+    cardsWrap.className = 'cards';
+
+    if(amAccounts.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No accounts yet — add one to start tracking.';
+      cardsWrap.appendChild(empty);
+    }
+
+    amAccounts.forEach(a=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.setProperty('--am-color', am.color);
+
+      const rail = document.createElement('div');
+      rail.className = 'rail';
+      STAGES.forEach((label,i)=>{
+        const done = a.stage >= i+1;
+        const isCurrent = a.stage === i+1;
+        const node = document.createElement('div');
+        node.className = 'node' + (done?' done':'') + (isCurrent?' current':'');
+        node.style.setProperty('--am-color', am.color);
+        node.textContent = i+1;
+        node.title = label;
+        node.onclick = ()=>setStage(a.id, i+1);
+        rail.appendChild(node);
+        if(i < STAGES.length-1){
+          const link = document.createElement('div');
+          link.className = 'rail-link' + (a.stage >= i+2 ? ' done':'');
+          link.style.background = a.stage >= i+2 ? am.color : '';
+          rail.appendChild(link);
+        }
+      });
+
+      const stageLabel = document.createElement('div');
+      stageLabel.className = 'stage-label';
+      stageLabel.innerHTML = a.stage>0
+        ? `Stage ${a.stage}/10 — <b>${STAGES[a.stage-1]}</b>`
+        : `Not started`;
+
+      const top = document.createElement('div');
+      top.className = 'card-top';
+      const nameInput = document.createElement('input');
+      nameInput.className = 'acct-name';
+      nameInput.value = a.name;
+      nameInput.oninput = (e)=>updateField(a.id,'name', e.target.value);
+      const delBtn = document.createElement('button');
+      delBtn.className = 'del-btn';
+      delBtn.textContent = '✕';
+      delBtn.onclick = ()=>removeAccount(a.id);
+      top.appendChild(nameInput);
+      top.appendChild(delBtn);
+
+      const industryRow = document.createElement('div');
+      industryRow.className = 'meta-row with-industry';
+      industryRow.innerHTML = `
+        <div class="field">
+          <label>Industry</label>
+          <input type="text" value="${(a.industry||'').replace(/"/g,'&quot;')}" data-field="industry" placeholder="e.g. FS&I">
+        </div>`;
+      industryRow.querySelector('[data-field="industry"]').oninput = (e)=>updateField(a.id,'industry', e.target.value);
+
+      const notesRow = document.createElement('div');
+      notesRow.className = 'meta-row with-industry';
+      notesRow.innerHTML = `
+        <div class="field">
+          <label>Notes</label>
+          <textarea data-field="notes" placeholder="Opportunity context, engagement so far...">${(a.notes||'')}</textarea>
+        </div>`;
+      notesRow.querySelector('[data-field="notes"]').oninput = (e)=>updateField(a.id,'notes', e.target.value);
+
+      const metaRow = document.createElement('div');
+      metaRow.className = 'meta-row-2';
+      metaRow.innerHTML = `
+        <div class="field">
+          <label>Est. pipeline value</label>
+          <input type="number" min="0" value="${a.value}" data-field="value">
+        </div>
+        <div class="field">
+          <label>Agreed next action</label>
+          <input type="text" value="${(a.nextAction||'').replace(/"/g,'&quot;')}" data-field="nextAction" placeholder="e.g. clinic booked 12 Sep">
+        </div>`;
+      metaRow.querySelector('[data-field="value"]').oninput = (e)=>updateField(a.id,'value', e.target.value);
+      metaRow.querySelector('[data-field="nextAction"]').oninput = (e)=>updateField(a.id,'nextAction', e.target.value);
+
+      card.appendChild(top);
+      card.appendChild(rail);
+      card.appendChild(stageLabel);
+      card.appendChild(industryRow);
+      card.appendChild(notesRow);
+      card.appendChild(metaRow);
+      cardsWrap.appendChild(card);
+    });
+
+    col.appendChild(cardsWrap);
+    cols.appendChild(col);
+  });
+
+  document.querySelectorAll('.add-btn').forEach(btn=>{
+    btn.onclick = ()=>addAccount(btn.dataset.am);
+  });
+}
+
+function exportCSV(){
+  const amNameMap = {};
+  AMS.forEach(am=>amNameMap[am.id]=am.name);
+  const headers = ['Account Manager','Account','Industry','Notes','Stage Number','Stage Name','Est. Pipeline Value (GBP)','Agreed Next Action'];
+  const rows = accounts.map(a=>[
+    amNameMap[a.am] || a.am,
+    a.name,
+    a.industry || '',
+    a.notes || '',
+    a.stage,
+    a.stage>0 ? STAGES[a.stage-1] : 'Not started',
+    Number(a.value)||0,
+    a.nextAction || ''
+  ]);
+  const escape = (v)=>{
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  };
+  const csv = [headers, ...rows].map(r=>r.map(escape).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `mainframe-growth-dashboard-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+document.getElementById('exportBtn').onclick = exportCSV;
+
+function waitForFirebaseThenInit(){
+  if(window.__demeter){ init(); }
+  else{ setTimeout(waitForFirebaseThenInit, 30); }
+}
+waitForFirebaseThenInit();
+</script>
+</body>
+</html>
